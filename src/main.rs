@@ -1,4 +1,6 @@
-use std::io::{self, Write};
+mod input;
+use input::read_position;
+
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Cell {
@@ -7,9 +9,19 @@ pub enum Cell {
     O,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Player {
     X,
     O,
+}
+
+impl Player {
+    fn other(self) -> Self {
+        match self {
+            Player::X => Player::O,
+            Player::O => Player::X,
+        }
+    }
 }
 
 impl From<Player> for Cell {
@@ -26,9 +38,97 @@ impl Default for Cell {
         Cell::Empty
     }
 }
+enum GameStatus {
+    InProgress,
+    Won(Player),
+    Draw,
+}
 
-pub struct GameState {
+impl GameStatus {
+    fn is_in_progress(&self) -> bool {
+        matches!(self, GameStatus::InProgress)
+    }
+}
+struct GameState {
+    board: Board,
     current_player: Player,
+    status: GameStatus,
+}
+impl GameState {
+    fn new() -> Self {
+        Self {
+            board: Board::new(),
+            current_player: Player::O,
+            status: GameStatus::InProgress,
+        }
+    }
+    pub fn apply_move(&mut self, position: usize) -> Result<(), String> {
+        // 1. Ensure game is still active
+        if !matches!(self.status, GameStatus::InProgress) {
+            return Err("Game is already over.".into());
+        }
+
+        if position > 8 {
+            return Err("Invalid board position.".into());
+        }
+
+        // 2. Convert 0–8 index into row/col
+        let row = position / 3;
+        let col = position % 3;
+
+        // 3. Ensure cell is empty
+        if self.board.cells[row][col] != Cell::Empty {
+            return Err("Cell already occupied.".into());
+        }
+
+        // 4. Place mark
+        self.board.cells[row][col] = self.current_player.into();
+
+        // 5. Check for win
+        if self.check_win(self.current_player) {
+            self.status = GameStatus::Won(self.current_player);
+            return Ok(());
+        }
+
+        // 6. Check for draw
+        if self.board.is_full() {
+            self.status = GameStatus::Draw;
+            return Ok(());
+        }
+
+        // 7. Otherwise switch player
+        self.current_player = self.current_player.other();
+
+        Ok(())
+    }
+
+    fn check_win(&self, player: Player) -> bool {
+        let target: Cell = player.into();
+        let b = &self.board.cells;
+
+        // Rows
+        for i in 0..3 {
+            if b[i][0] == target && b[i][1] == target && b[i][2] == target {
+                return true;
+            }
+        }
+
+        // Columns
+        for i in 0..3 {
+            if b[0][i] == target && b[1][i] == target && b[2][i] == target {
+                return true;
+            }
+        }
+
+        // Diagonals
+        if (b[0][0] == target && b[1][1] == target && b[2][2] == target)
+            || (b[0][2] == target && b[1][1] == target && b[2][0] == target)
+        {
+            return true;
+        }
+
+        false
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -42,19 +142,10 @@ impl Board {
         Self::default()
     }
 
-    /// Get the cell at a given row/col (0-based)
-    pub fn get(&self, row: usize, col: usize) -> Cell {
-        self.cells[row][col]
-    }
-
-    /// Set a cell (you'll probably want bounds checking in real code)
-    pub fn set(&mut self, row: usize, col: usize, cell: Cell) {
-        self.cells[row][col] = cell;
-    }
-
-    /// Check if the board is completely full (no Empty cells)
     pub fn is_full(&self) -> bool {
-        self.cells.iter().flatten().all(|&c| c != Cell::Empty)
+        self.cells
+            .iter()
+            .all(|row| row.iter().all(|&cell| cell != Cell::Empty))
     }
 
     /// Pretty-print the board (very handy for debugging)
@@ -73,13 +164,33 @@ impl Board {
 }
 
 fn main() {
-    let board = Board::new();
+    let mut game = GameState::new();
 
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
+    while game.status.is_in_progress() {
+        game.board.print();
 
-    let input = input.trim();
-    println!("Hello {}", input)
+        println!("Player {:?}'s turn", game.current_player);
+
+        let pos = read_position();
+
+        match game.apply_move(pos) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("{}", e);
+                continue; // retry same player
+            }
+        }
+    }
+
+    game.board.print();
+
+    match game.status {
+        GameStatus::Won(player) => {
+            println!("Player {:?} wins!", player);
+        }
+        GameStatus::Draw => {
+            println!("It's a draw.");
+        }
+        _ => {}
+    }
 }
